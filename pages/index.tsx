@@ -24,6 +24,21 @@ type Question = {
   accounts: Account[];
 }
 
+function getBaseUrl() {
+  if (typeof window !== 'undefined') {
+    // Browser should use relative path
+    return '';
+  }
+  if (process.env.NEXT_PUBLIC_BASE_URL) {
+    return process.env.NEXT_PUBLIC_BASE_URL;
+  }
+  if (process.env.VERCEL_URL) {
+    return `https://${process.env.VERCEL_URL}`;
+  }
+  return 'http://localhost:3000';
+}
+
+
 const TweetQuiz = () => {
   // Separate state for current and next questions
   const [currentQuestion, setCurrentQuestion] = useState<Question | null>(null);
@@ -52,13 +67,14 @@ const TweetQuiz = () => {
 
   const fetchQuestion = async () => {
     try {
+      const baseUrl = getBaseUrl();
       // First get 4 random accounts
-      const accountsResponse = await fetch('/api/random-accounts');
+      const accountsResponse = await fetch(`${baseUrl}/api/random-accounts`);
       const accounts: Account[] = await accountsResponse.json();
 
       // Get a random tweet from one of these accounts
       const randomAccount = accounts[Math.floor(Math.random() * accounts.length)];
-      const tweetResponse = await fetch(`/api/random-tweet?account_id=${randomAccount.account_id}`);
+      const tweetResponse = await fetch(`${baseUrl}/api/random-tweet?account_id=${randomAccount.account_id}`);
       
       if (!tweetResponse.ok) {
         throw new Error('Failed to fetch tweet');
