@@ -69,7 +69,7 @@ const CustomTweet = ({ tweet, author }: { tweet: Tweet; author: Account }) => {
           
           <div className="flex-1">
             {/* Author info */}
-            <div className="flex items-center space-x-2">
+            <div className="flex items-center space-x-2 text-sm">
               <a 
                 href={profileUrl}
                 target="_blank"
@@ -261,6 +261,7 @@ const TweetQuiz = () => {
           <CardTitle>Guess the Poaster</CardTitle>
         </CardHeader>
         <CardContent className="space-y-6">
+          <a className="block text-sm text-gray-800" href="https://www.community-archive.org/" target="_blank" rel="noopener noreferrer">Made possible with data from the <span className="font-semibold text-cyan-600 underline">Community Archive</span></a>
           {/* Stats Display */}
           <div className="text-sm text-gray-600">
             Success Rate: {getSuccessRate()}% ({stats.correct}/{stats.total})
@@ -302,7 +303,7 @@ const TweetQuiz = () => {
                 <AlertCircle className="h-4 w-4" />
               )}
               <AlertDescription>
-                {isCorrect ? "Correct!" : "Incorrect! Try another one!"}
+                {isCorrect ? "Correct!" : "Incorrect!"}
               </AlertDescription>
             </Alert>
           )}
