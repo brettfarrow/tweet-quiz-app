@@ -13,9 +13,8 @@ type Tweet = {
   full_text: string
   retweet_count: number
   favorite_count: number
-  reply_to_tweet_id?: string
-  reply_to_user_id?: string
-  reply_to_username?: string
+  reply_count?: number
+  avatar_media_url?: string
 }
 
 export default async function handler(
@@ -50,34 +49,47 @@ export default async function handler(
     // Generate a random offset
     const randomOffset = Math.floor(Math.random() * count)
 
-    // Fetch one random tweet using the offset
-    const { data, error } = await supabase
+    // First get the random tweet
+    const { data: tweetData, error: tweetError } = await supabase
       .from('tweets')
-      .select(`
-        tweet_id,
-        account_id,
-        created_at,
-        full_text,
-        retweet_count,
-        favorite_count,
-        reply_to_tweet_id,
-        reply_to_user_id,
-        reply_to_username
-      `)
+      .select('*')
       .eq('account_id', account_id)
       .range(randomOffset, randomOffset)
-      .limit(1)
       .single()
 
-    if (error) {
-      throw new Error(`Error fetching tweet: ${error.message}`)
+    if (tweetError) {
+      throw new Error(`Error fetching tweet: ${tweetError.message}`)
     }
 
-    if (!data) {
+    if (!tweetData) {
       throw new Error('No tweet retrieved')
     }
 
-    return res.status(200).json(data)
+    // Then get the profile data
+    const { data: profileData, error: profileError } = await supabase
+      .from('profile')
+      .select('avatar_media_url')
+      .eq('account_id', account_id)
+      .maybeSingle()
+
+    if (profileError) {
+      console.error('Error fetching profile:', profileError);
+      // Continue without profile data
+    }
+
+    // Combine the data
+    const transformedTweet: Tweet = {
+      tweet_id: tweetData.tweet_id,
+      account_id: tweetData.account_id,
+      created_at: tweetData.created_at,
+      full_text: tweetData.full_text,
+      retweet_count: tweetData.retweet_count,
+      favorite_count: tweetData.favorite_count,
+      reply_count: tweetData.reply_count,
+      avatar_media_url: profileData?.avatar_media_url
+    };
+
+    return res.status(200).json(transformedTweet)
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
     return res.status(500).json({ error: errorMessage })

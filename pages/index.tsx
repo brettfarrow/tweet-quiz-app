@@ -1,8 +1,10 @@
+/* eslint-disable @next/next/no-img-element */
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { AlertCircle, Check } from 'lucide-react';
+import { AlertCircle, Check, Heart, MessageCircle, Repeat2 } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { fetchWithRetry } from '../utils/fetch';
 
 type Account = {
   account_id: string;
@@ -17,6 +19,8 @@ type Tweet = {
   full_text: string;
   retweet_count: number;
   favorite_count: number;
+  reply_count?: number;
+  avatar_media_url?: string;
 }
 
 type Question = {
@@ -24,32 +28,123 @@ type Question = {
   accounts: Account[];
 }
 
-function getBaseUrl() {
-  if (typeof window !== 'undefined') {
-    // Browser should use relative path
-    return '';
-  }
-  if (process.env.NEXT_PUBLIC_BASE_URL) {
-    return process.env.NEXT_PUBLIC_BASE_URL;
-  }
-  if (process.env.VERCEL_URL) {
-    return `https://${process.env.VERCEL_URL}`;
-  }
-  return 'http://localhost:3000';
+function formatDate(dateString: string) {
+  const date = new Date(dateString);
+  return date.toLocaleDateString('en-US', {
+    hour: 'numeric',
+    minute: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric'
+  });
 }
 
+function formatNumber(num: number): string {
+  if (num >= 1000000) {
+    return (num / 1000000).toFixed(1) + 'M';
+  }
+  if (num >= 1000) {
+    return (num / 1000).toFixed(1) + 'K';
+  }
+  return num.toString();
+}
+
+const CustomTweet = ({ tweet, author }: { tweet: Tweet; author: Account }) => {
+  const tweetUrl = `https://x.com/${author.username}/status/${tweet.tweet_id}`;
+  const profileUrl = `https://x.com/${author.username}`;
+  return (
+    <Card>
+      <CardContent className="pt-6">
+        <div className="flex items-start space-x-3">
+          {/* Avatar */}
+          {tweet.avatar_media_url ? (
+            <img 
+              src={tweet.avatar_media_url} 
+              alt={`${author.username}'s avatar`}
+              className="w-12 h-12 rounded-full flex-shrink-0"
+            />
+          ) : (
+            <div className="w-12 h-12 rounded-full bg-gray-200 flex-shrink-0" />
+          )}
+          
+          <div className="flex-1">
+            {/* Author info */}
+            <div className="flex items-center space-x-2">
+              <a 
+                href={profileUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-bold hover:underline"
+              >
+                {author.account_display_name}
+              </a>
+              <a
+                href={profileUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-gray-500 hover:underline"
+              >
+                @{author.username}
+              </a>
+              <span className="text-gray-500">·</span>
+              <a
+                href={tweetUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-gray-500 hover:underline"
+              >
+                {formatDate(tweet.created_at)}
+              </a>
+            </div>
+
+            {/* Tweet content */}
+            <a
+              href={tweetUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="block mt-2 text-gray-900 whitespace-pre-wrap hover:underline"
+            >
+              {tweet.full_text}
+            </a>
+
+            {/* Engagement metrics */}
+            <div className="mt-4 flex items-center space-x-6 text-gray-500">
+              <div className="flex items-center space-x-2 group cursor-not-allowed">
+                <div className="p-2 rounded-full group-hover:bg-blue-50 group-hover:text-blue-500 transition-colors">
+                  <MessageCircle className="h-5 w-5" />
+                </div>
+                <span>{formatNumber(tweet.reply_count || 0)}</span>
+              </div>
+              <div className="flex items-center space-x-2 group cursor-not-allowed">
+                <div className="p-2 rounded-full group-hover:bg-green-50 group-hover:text-green-500 transition-colors">
+                  <Repeat2 className="h-5 w-5" />
+                </div>
+                <span>{formatNumber(tweet.retweet_count)}</span>
+              </div>
+              <div className="flex items-center space-x-2 group cursor-not-allowed">
+                <div className="p-2 rounded-full group-hover:bg-red-50 group-hover:text-red-500 transition-colors">
+                  <Heart className="h-5 w-5" />
+                </div>
+                <span>{formatNumber(tweet.favorite_count)}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+};
 
 const TweetQuiz = () => {
-  // Separate state for current and next questions
   const [currentQuestion, setCurrentQuestion] = useState<Question | null>(null);
   const [nextQuestion, setNextQuestion] = useState<Question | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null);
   const [isCorrect, setIsCorrect] = useState<boolean | null>(null);
   const [stats, setStats] = useState({ correct: 0, total: 0 });
 
   useEffect(() => {
-    // Load stats from localStorage on component mount
     const savedStats = localStorage.getItem('tweetQuizStats');
     if (savedStats) {
       setStats(JSON.parse(savedStats));
@@ -67,20 +162,16 @@ const TweetQuiz = () => {
 
   const fetchQuestion = async () => {
     try {
-      const baseUrl = getBaseUrl();
-      // First get 4 random accounts
-      const accountsResponse = await fetch(`${baseUrl}/api/random-accounts`);
-      const accounts: Account[] = await accountsResponse.json();
+      const accounts = await fetchWithRetry<Account[]>('/api/random-accounts', {
+        retries: 3,
+        retryDelay: 1000
+      });
 
-      // Get a random tweet from one of these accounts
       const randomAccount = accounts[Math.floor(Math.random() * accounts.length)];
-      const tweetResponse = await fetch(`${baseUrl}/api/random-tweet?account_id=${randomAccount.account_id}`);
-      
-      if (!tweetResponse.ok) {
-        throw new Error('Failed to fetch tweet');
-      }
-      
-      const tweet: Tweet = await tweetResponse.json();
+      const tweet = await fetchWithRetry<Tweet>(`/api/random-tweet?account_id=${randomAccount.account_id}`, {
+        retries: 3,
+        retryDelay: 1000
+      });
 
       return {
         tweet,
@@ -88,11 +179,11 @@ const TweetQuiz = () => {
       };
     } catch (error) {
       console.error('Error fetching question:', error);
+      setError(error instanceof Error ? error.message : 'Failed to load quiz data');
       throw error;
     }
   };
 
-  // Load both current and next questions on initial mount
   useEffect(() => {
     const initializeQuestions = async () => {
       try {
@@ -110,7 +201,6 @@ const TweetQuiz = () => {
     initializeQuestions();
   }, []);
 
-  // Function to preload next question in the background
   const preloadNextQuestion = async () => {
     try {
       const newQuestion = await fetchQuestion();
@@ -121,12 +211,9 @@ const TweetQuiz = () => {
   };
 
   const handleNextQuestion = () => {
-    // Move next question to current
     setCurrentQuestion(nextQuestion);
-    // Reset UI state
     setSelectedAnswer(null);
     setIsCorrect(null);
-    // Start loading new next question
     preloadNextQuestion();
   };
 
@@ -144,6 +231,17 @@ const TweetQuiz = () => {
     return ((stats.correct / stats.total) * 100).toFixed(1);
   };
 
+  if (error) {
+    return (
+      <div className="flex justify-center items-center h-64 flex-col gap-4">
+        <div className="text-red-500">{error}</div>
+        <Button onClick={() => window.location.reload()}>
+          Retry
+        </Button>
+      </div>
+    );
+  }
+
   if (loading || !currentQuestion) {
     return (
       <div className="flex justify-center items-center h-64">
@@ -152,11 +250,15 @@ const TweetQuiz = () => {
     );
   }
 
+  const correctAccount = currentQuestion.accounts.find(
+    account => account.account_id === currentQuestion.tweet.account_id
+  );
+
   return (
     <div className="max-w-2xl mx-auto p-4 space-y-6">
       <Card>
         <CardHeader>
-          <CardTitle>Who Tweeted This?</CardTitle>
+          <CardTitle>Guess the Poaster</CardTitle>
         </CardHeader>
         <CardContent className="space-y-6">
           {/* Stats Display */}
@@ -178,7 +280,7 @@ const TweetQuiz = () => {
                 disabled={selectedAnswer !== null}
                 variant={
                   selectedAnswer === null ? "outline" :
-                  account.account_id === currentQuestion.tweet.account_id ? "secondary" :
+                  account.account_id === currentQuestion.tweet.account_id ? "default" :
                   account.account_id === selectedAnswer ? "destructive" : "outline"
                 }
                 className="w-full justify-start h-12"
@@ -217,6 +319,17 @@ const TweetQuiz = () => {
           )}
         </CardContent>
       </Card>
+
+      {/* Custom Tweet Display */}
+      {selectedAnswer !== null && correctAccount && (
+        <div className="mt-8">
+          <h2 className="text-lg font-semibold mb-4">Original Tweet</h2>
+          <CustomTweet 
+            tweet={currentQuestion.tweet}
+            author={correctAccount}
+          />
+        </div>
+      )}
     </div>
   );
 };
