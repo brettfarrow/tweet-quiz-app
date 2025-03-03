@@ -462,7 +462,7 @@ const TweetQuiz = () => {
   };
 
   const handleGuess = (accountId: string) => {
-    if (!currentQuestion) return;
+    if (!currentQuestion || loading) return;
     
     const correct = accountId === currentQuestion.tweet.account_id;
     setSelectedAnswer(accountId);
@@ -628,16 +628,14 @@ const TweetQuiz = () => {
     );
   }
 
-  if (loading || !currentQuestion) {
-    return (
-      <div className="flex justify-center items-center h-64">
-        <div className="animate-pulse text-lg">Loading quiz...</div>
-      </div>
-    );
-  }
-
-  const correctAccount = currentQuestion.accounts.find(
-    account => account.account_id === currentQuestion.tweet.account_id
+  /* 
+   * We no longer return early for loading 
+   * Instead we'll show a loading state in each section
+   */
+  
+  // Find correct account if we have a current question
+  const correctAccount = currentQuestion?.accounts?.find(
+    account => account?.account_id === currentQuestion?.tweet?.account_id
   );
 
   return (
@@ -826,34 +824,51 @@ const TweetQuiz = () => {
           </div>
 
           {/* Tweet Display */}
-          <div className="p-4 bg-gray-50 rounded-lg">
-            <p className="text-lg">{currentQuestion.tweet.full_text}</p>
-          </div>
+          {loading ? (
+            <div className="p-4 bg-gray-50 rounded-lg flex justify-center">
+              <div className="animate-pulse text-lg">Loading quiz...</div>
+            </div>
+          ) : (
+            <div className="p-4 bg-gray-50 rounded-lg">
+              <p className="text-lg">{currentQuestion?.tweet?.full_text}</p>
+            </div>
+          )}
 
           {/* Options */}
-          <div className="grid grid-cols-1 gap-3">
-            {currentQuestion.accounts.map((account) => (
-              <Button
-                key={account.account_id}
-                onClick={() => handleGuess(account.account_id)}
-                disabled={selectedAnswer !== null}
-                variant={
-                  selectedAnswer === null ? "outline" :
-                  account.account_id === currentQuestion.tweet.account_id ? "default" :
-                  account.account_id === selectedAnswer ? "destructive" : "outline"
-                }
-                className="w-full justify-start h-12"
-              >
-                {account.username}
-                {selectedAnswer !== null && account.account_id === currentQuestion.tweet.account_id && (
-                  <Check className="ml-2 h-4 w-4" />
-                )}
-              </Button>
-            ))}
-          </div>
+          {loading ? (
+            <div className="grid grid-cols-1 gap-3">
+              {[1, 2, 3, 4].map((i) => (
+                <div 
+                  key={i}
+                  className="w-full h-12 animate-pulse bg-gray-200 rounded-md"
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-3">
+              {currentQuestion?.accounts?.map((account) => (
+                <Button
+                  key={account.account_id}
+                  onClick={() => handleGuess(account.account_id)}
+                  disabled={selectedAnswer !== null}
+                  variant={
+                    selectedAnswer === null ? "outline" :
+                    account.account_id === currentQuestion?.tweet?.account_id ? "default" :
+                    account.account_id === selectedAnswer ? "destructive" : "outline"
+                  }
+                  className="w-full justify-start h-12"
+                >
+                  {account.username}
+                  {selectedAnswer !== null && account.account_id === currentQuestion?.tweet?.account_id && (
+                    <Check className="ml-2 h-4 w-4" />
+                  )}
+                </Button>
+              ))}
+            </div>
+          )}
 
           {/* Feedback Alert */}
-          {selectedAnswer !== null && (
+          {!loading && selectedAnswer !== null && (
             <Alert variant={isCorrect ? "default" : "destructive"}>
               {isCorrect ? (
                 <Check className="h-4 w-4" />
@@ -867,7 +882,7 @@ const TweetQuiz = () => {
           )}
 
           {/* Next Question Button */}
-          {selectedAnswer !== null && (
+          {!loading && selectedAnswer !== null && (
             <Button 
               onClick={handleNextQuestion}
               className="w-full"
@@ -880,7 +895,7 @@ const TweetQuiz = () => {
       </Card>
 
       {/* Custom Tweet Display */}
-      {selectedAnswer !== null && correctAccount && (
+      {!loading && selectedAnswer !== null && correctAccount && (
         <div className="mt-8">
           <h2 className="text-lg font-semibold mb-4">Original Tweet</h2>
           <CustomTweet 
