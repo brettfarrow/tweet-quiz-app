@@ -12,6 +12,7 @@ type Tweet = {
   full_text: string;
   account: {
     username: string;
+    account_id: string;
   }
 }
 
@@ -78,8 +79,22 @@ export default async function handler(
     const uniqueAccounts = new Map<string, Account>();
     
     mentionData?.forEach(mention => {
-      // @ts-expect-error come back to this type
-      const tweet: Tweet = mention.tweets;
+      // Define the shape of the data we expect
+      type MentionTweet = {
+        tweets: {
+          tweet_id: string;
+          account_id: string;
+          account: {
+            username: string;
+            account_id: string;
+          };
+        };
+      };
+      
+      // Cast mention to the correct type
+      const mentionTyped = mention as unknown as MentionTweet;
+      const tweet = mentionTyped.tweets;
+      
       if (tweet?.account?.username && tweet?.account?.account_id) {
         if (!uniqueAccounts.has(tweet.account.account_id)) {
           uniqueAccounts.set(tweet.account.account_id, {
