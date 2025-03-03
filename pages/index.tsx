@@ -483,10 +483,82 @@ const TweetQuiz = () => {
           <Button onClick={() => window.location.reload()}>
             Retry
           </Button>
-          {usingMentions && (
             <Button 
-              variant="outline"
+              variant={usingMentions ? "default" : "outline"}
               onClick={() => {
+                if (!username.trim() || usingMentions) return; // Don't do anything if already active or no username
+                
+                // Immediately clear cache and switch to mentions mode
+                setUsingMentions(true);
+                setError(null);
+                setLoading(true);
+                // Clear seen tweets when switching modes
+                setSeenTweetIds(new Set());
+                
+                // Define a separate function to fetch with mentions
+                const fetchWithMentions = async () => {
+                  try {
+                    // First fetch accounts from mentions API
+                    const mentionAccounts = await fetchWithRetry<Account[]>(`/api/mentions?username=${username}`, {
+                      retries: 3,
+                      retryDelay: 1000
+                    });
+                    
+                    if (!mentionAccounts || mentionAccounts.length === 0) {
+                      setError('No mentions found for this username. Try another username or use random accounts.');
+                      setLoading(false);
+                      return;
+                    }
+                    
+                    // Get a random account from the mentions
+                    const randomAccount = mentionAccounts[Math.floor(Math.random() * mentionAccounts.length)];
+                    
+                    // Directly fetch a tweet for this account
+                    const tweet = await fetchWithRetry<Tweet>(`/api/random-tweet?account_id=${randomAccount.account_id}`, {
+                      retries: 3,
+                      retryDelay: 1000
+                    });
+                    
+                    // Create the first question directly
+                    const firstQuestion = {
+                      tweet,
+                      accounts: mentionAccounts
+                    };
+                    
+                    setCurrentQuestion(firstQuestion);
+                    
+                    // Then create a second question (also from mentions)
+                    const randomAccount2 = mentionAccounts[Math.floor(Math.random() * mentionAccounts.length)];
+                    const tweet2 = await fetchWithRetry<Tweet>(`/api/random-tweet?account_id=${randomAccount2.account_id}`, {
+                      retries: 3,
+                      retryDelay: 1000
+                    });
+                    
+                    const secondQuestion = {
+                      tweet: tweet2,
+                      accounts: mentionAccounts
+                    };
+                    
+                    setNextQuestion(secondQuestion);
+                  } catch (error) {
+                    console.error('Error initializing questions with mentions:', error);
+                  } finally {
+                    setLoading(false);
+                  }
+                };
+                
+                fetchWithMentions();
+              }}
+              disabled={!username.trim()}
+            >
+              Use Mentions
+            </Button>
+            
+            <Button 
+              variant={!usingMentions ? "default" : "outline"}
+              onClick={() => {
+                if (!usingMentions) return; // Don't do anything if already active
+                
                 // Immediately clear cache and switch to random mode
                 setUsingMentions(false);
                 setError(null);
@@ -549,9 +621,8 @@ const TweetQuiz = () => {
                 fetchWithRandomAccounts();
               }}
             >
-              Use Random Accounts
+              Random
             </Button>
-          )}
         </div>
       </div>
     );
@@ -578,91 +649,99 @@ const TweetQuiz = () => {
         <CardContent className="space-y-6">
           <a className="block text-sm text-gray-800" href="https://www.community-archive.org/" target="_blank" rel="noopener noreferrer">Made possible with data from the <span className="font-semibold text-cyan-600 underline">Community Archive</span></a>
           
-          {/* Username input and fetch mentions button */}
-          <div className="flex space-x-2">
-            <input
-              type="text"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              placeholder="Enter username"
-              className="flex-1 px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-            />
-            <Button 
-              onClick={() => {
-                // Immediately clear cache and switch to mentions mode
-                setUsingMentions(true);
-                setLoading(true);
-                setCurrentQuestion(null);
-                setNextQuestion(null);
-                setSelectedAnswer(null);
-                setIsCorrect(null);
-                setError(null);
-                // Clear seen tweets when switching modes
-                setSeenTweetIds(new Set());
-                
-                // Define a separate function to fetch with mentions
-                const fetchWithMentions = async () => {
-                  try {
-                    // First fetch accounts from mentions API
-                    const mentionAccounts = await fetchWithRetry<Account[]>(`/api/mentions?username=${username}`, {
-                      retries: 3,
-                      retryDelay: 1000
-                    });
-                    
-                    if (!mentionAccounts || mentionAccounts.length === 0) {
-                      setError('No mentions found for this username. Try another username or use random accounts.');
-                      setLoading(false);
-                      return;
-                    }
-                    
-                    // Get a random account from the mentions
-                    const randomAccount = mentionAccounts[Math.floor(Math.random() * mentionAccounts.length)];
-                    
-                    // Directly fetch a tweet for this account
-                    const tweet = await fetchWithRetry<Tweet>(`/api/random-tweet?account_id=${randomAccount.account_id}`, {
-                      retries: 3,
-                      retryDelay: 1000
-                    });
-                    
-                    // Create the first question directly
-                    const firstQuestion = {
-                      tweet,
-                      accounts: mentionAccounts
-                    };
-                    
-                    setCurrentQuestion(firstQuestion);
-                    
-                    // Then create a second question (also from mentions)
-                    const randomAccount2 = mentionAccounts[Math.floor(Math.random() * mentionAccounts.length)];
-                    const tweet2 = await fetchWithRetry<Tweet>(`/api/random-tweet?account_id=${randomAccount2.account_id}`, {
-                      retries: 3,
-                      retryDelay: 1000
-                    });
-                    
-                    const secondQuestion = {
-                      tweet: tweet2,
-                      accounts: mentionAccounts
-                    };
-                    
-                    setNextQuestion(secondQuestion);
-                  } catch (error) {
-                    console.error('Error initializing questions with mentions:', error);
-                  } finally {
-                    setLoading(false);
-                  }
-                };
-                
-                fetchWithMentions();
-              }}
-              disabled={!username.trim()}
-              className="whitespace-nowrap"
-            >
-              Use Mentions
-            </Button>
-            {usingMentions && (
+          {/* Username input and mode toggle buttons */}
+          <div className="space-y-2">
+            <div className="flex space-x-2">
+              <input
+                type="text"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder="Enter username"
+                className="flex-1 px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+              />
+            </div>
+            <div className="flex space-x-2">
               <Button 
-                variant="outline"
+                variant={usingMentions ? "default" : "outline"}
                 onClick={() => {
+                  if (!username.trim() || usingMentions) return; // Don't do anything if already active or no username
+                  
+                  // Immediately clear cache and switch to mentions mode
+                  setUsingMentions(true);
+                  setLoading(true);
+                  setCurrentQuestion(null);
+                  setNextQuestion(null);
+                  setSelectedAnswer(null);
+                  setIsCorrect(null);
+                  setError(null);
+                  // Clear seen tweets when switching modes
+                  setSeenTweetIds(new Set());
+                  
+                  // Define a separate function to fetch with mentions
+                  const fetchWithMentions = async () => {
+                    try {
+                      // First fetch accounts from mentions API
+                      const mentionAccounts = await fetchWithRetry<Account[]>(`/api/mentions?username=${username}`, {
+                        retries: 3,
+                        retryDelay: 1000
+                      });
+                      
+                      if (!mentionAccounts || mentionAccounts.length === 0) {
+                        setError('No mentions found for this username. Try another username or use random accounts.');
+                        setLoading(false);
+                        return;
+                      }
+                      
+                      // Get a random account from the mentions
+                      const randomAccount = mentionAccounts[Math.floor(Math.random() * mentionAccounts.length)];
+                      
+                      // Directly fetch a tweet for this account
+                      const tweet = await fetchWithRetry<Tweet>(`/api/random-tweet?account_id=${randomAccount.account_id}`, {
+                        retries: 3,
+                        retryDelay: 1000
+                      });
+                      
+                      // Create the first question directly
+                      const firstQuestion = {
+                        tweet,
+                        accounts: mentionAccounts
+                      };
+                      
+                      setCurrentQuestion(firstQuestion);
+                      
+                      // Then create a second question (also from mentions)
+                      const randomAccount2 = mentionAccounts[Math.floor(Math.random() * mentionAccounts.length)];
+                      const tweet2 = await fetchWithRetry<Tweet>(`/api/random-tweet?account_id=${randomAccount2.account_id}`, {
+                        retries: 3,
+                        retryDelay: 1000
+                      });
+                      
+                      const secondQuestion = {
+                        tweet: tweet2,
+                        accounts: mentionAccounts
+                      };
+                      
+                      setNextQuestion(secondQuestion);
+                    } catch (error) {
+                      console.error('Error initializing questions with mentions:', error);
+                    } finally {
+                      setLoading(false);
+                    }
+                  };
+                  
+                  fetchWithMentions();
+                }}
+                disabled={!username.trim()}
+                className="whitespace-nowrap"
+              >
+                Use Mentions
+              </Button>
+              
+              <Button 
+                variant={!usingMentions ? "default" : "outline"}
+                onClick={() => {
+                  if (!usingMentions) return; // Don't do anything if already active
+                  
                   // Immediately clear cache and switch to random mode
                   setUsingMentions(false);
                   setLoading(true);
@@ -731,7 +810,7 @@ const TweetQuiz = () => {
               >
                 Random
               </Button>
-            )}
+            </div>
           </div>
           
           {/* Stats Display */}
