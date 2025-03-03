@@ -6,15 +6,17 @@ const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS
 
 const supabase = createClient(supabaseUrl, supabaseKey)
 
-type Tweet = {
-  tweet_id: string;
-  account_id: string;
-  full_text: string;
-  account: {
-    username: string;
+// Define the shape of the tweets we'll be handling
+type MentionTweet = {
+  tweets: {
+    tweet_id: string;
     account_id: string;
-  }
-}
+    account: {
+      username: string;
+      account_id: string;
+    };
+  };
+};
 
 type Account = {
   account_id: string;
@@ -79,18 +81,6 @@ export default async function handler(
     const uniqueAccounts = new Map<string, Account>();
     
     mentionData?.forEach(mention => {
-      // Define the shape of the data we expect
-      type MentionTweet = {
-        tweets: {
-          tweet_id: string;
-          account_id: string;
-          account: {
-            username: string;
-            account_id: string;
-          };
-        };
-      };
-      
       // Cast mention to the correct type
       const mentionTyped = mention as unknown as MentionTweet;
       const tweet = mentionTyped.tweets;

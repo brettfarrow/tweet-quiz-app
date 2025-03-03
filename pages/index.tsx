@@ -224,9 +224,14 @@ const TweetQuiz = () => {
     const initializeQuestions = async () => {
       try {
         const firstQuestion = await fetchQuestion();
-        setCurrentQuestion(firstQuestion);
+        if (firstQuestion && firstQuestion.tweet) {
+          setCurrentQuestion(firstQuestion);
+        }
+        
         const secondQuestion = await fetchQuestion();
-        setNextQuestion(secondQuestion);
+        if (secondQuestion && secondQuestion.tweet) {
+          setNextQuestion(secondQuestion);
+        }
       } catch (error) {
         console.error('Error initializing questions:', error);
       } finally {
@@ -235,6 +240,8 @@ const TweetQuiz = () => {
     };
 
     initializeQuestions();
+    // We intentionally only want this to run once on mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const preloadNextQuestion = async () => {
@@ -332,13 +339,18 @@ const TweetQuiz = () => {
           }
         }
         
-        // Create the question directly
-        const newQuestion = {
-          tweet,
-          accounts: mentionAccounts
-        };
-        
-        setNextQuestion(newQuestion);
+        // Only create a question if tweet is not null
+        if (tweet) {
+          const newQuestion: Question = {
+            tweet,
+            accounts: mentionAccounts
+          };
+          
+          setNextQuestion(newQuestion);
+        } else {
+          // If we couldn't get a valid tweet, don't update the next question
+          console.warn('Failed to get a valid tweet for next question');
+        }
       } else {
         // Fetch random accounts
         const randomAccounts = await fetchWithRetry<Account[]>('/api/random-accounts', {
@@ -432,13 +444,18 @@ const TweetQuiz = () => {
           }
         }
         
-        // Create the question directly
-        const newQuestion = {
-          tweet,
-          accounts: randomAccounts
-        };
-        
-        setNextQuestion(newQuestion);
+        // Only create a question if tweet is not null
+        if (tweet) {
+          const newQuestion: Question = {
+            tweet,
+            accounts: randomAccounts
+          };
+          
+          setNextQuestion(newQuestion);
+        } else {
+          // If we couldn't get a valid tweet, don't update the next question
+          console.warn('Failed to get a valid tweet for next question');
+        }
       }
     } catch (error) {
       console.error('Error preloading next question:', error);
@@ -520,7 +537,7 @@ const TweetQuiz = () => {
                     });
                     
                     // Create the first question directly
-                    const firstQuestion = {
+                    const firstQuestion: Question = {
                       tweet,
                       accounts: mentionAccounts
                     };
@@ -534,7 +551,7 @@ const TweetQuiz = () => {
                       retryDelay: 1000
                     });
                     
-                    const secondQuestion = {
+                    const secondQuestion: Question = {
                       tweet: tweet2,
                       accounts: mentionAccounts
                     };
@@ -591,7 +608,7 @@ const TweetQuiz = () => {
                     });
                     
                     // Create the first question directly
-                    const firstQuestion = {
+                    const firstQuestion: Question = {
                       tweet,
                       accounts: randomAccounts
                     };
@@ -605,7 +622,7 @@ const TweetQuiz = () => {
                       retryDelay: 1000
                     });
                     
-                    const secondQuestion = {
+                    const secondQuestion: Question = {
                       tweet: tweet2,
                       accounts: randomAccounts
                     };
@@ -895,7 +912,7 @@ const TweetQuiz = () => {
       </Card>
 
       {/* Custom Tweet Display */}
-      {!loading && selectedAnswer !== null && correctAccount && (
+      {!loading && selectedAnswer !== null && correctAccount && currentQuestion && (
         <div className="mt-8">
           <h2 className="text-lg font-semibold mb-4">Original Tweet</h2>
           <CustomTweet 
