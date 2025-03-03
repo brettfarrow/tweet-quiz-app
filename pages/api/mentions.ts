@@ -15,9 +15,15 @@ type Tweet = {
   }
 }
 
+type Account = {
+  account_id: string;
+  username: string;
+  account_display_name: string;
+}
+
 export default async function handler(
   req: NextApiRequest,
-  res: NextApiResponse<string[] | { error: string }>
+  res: NextApiResponse<Account[] | { error: string }>
 ) {
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' })
@@ -55,7 +61,8 @@ export default async function handler(
           tweet_id,
           account_id,
           account:account (
-            username
+            username,
+            account_id
           )
         )
       `)
@@ -67,17 +74,45 @@ export default async function handler(
       throw mentionError
     }
 
-    // Extract unique author usernames
-    const authorUsernames = new Set(
-      mentionData
-        ?.flatMap(mention => {
-          // @ts-expect-error come back to this type
-          const tweet: Tweet = mention.tweets;
-          return tweet?.account?.username ? [tweet.account.username] : [];
-        }) || []
-    )
+    // Extract unique account IDs and usernames
+    const uniqueAccounts = new Map<string, Account>();
+    
+    mentionData?.forEach(mention => {
+      // @ts-expect-error come back to this type
+      const tweet: Tweet = mention.tweets;
+      if (tweet?.account?.username && tweet?.account?.account_id) {
+        if (!uniqueAccounts.has(tweet.account.account_id)) {
+          uniqueAccounts.set(tweet.account.account_id, {
+            account_id: tweet.account.account_id,
+            username: tweet.account.username,
+            account_display_name: tweet.account.username // Use username as display name if not available
+          });
+        }
+      }
+    });
 
-    return res.status(200).json(Array.from(authorUsernames))
+    // If we have at least 4 accounts, select 4 random ones
+    let accountsArray = Array.from(uniqueAccounts.values());
+    
+    if (accountsArray.length === 0) {
+      return res.status(200).json([]);
+    }
+    
+    if (accountsArray.length > 4) {
+      // Select 4 random accounts (Fisher-Yates shuffle)
+      const randomAccounts: Account[] = [];
+      const accountsCopy = [...accountsArray];
+      
+      for (let i = 0; i < 4 && accountsCopy.length > 0; i++) {
+        const randomIndex = Math.floor(Math.random() * accountsCopy.length);
+        randomAccounts.push(accountsCopy[randomIndex]);
+        accountsCopy.splice(randomIndex, 1);
+      }
+      
+      accountsArray = randomAccounts;
+    }
+
+    return res.status(200).json(accountsArray);
   } catch (error) {
     console.error('Error:', error)
     return res.status(500).json({ 

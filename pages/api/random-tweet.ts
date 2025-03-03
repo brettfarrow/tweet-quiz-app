@@ -32,49 +32,86 @@ export default async function handler(
   }
 
   try {
-    // First, get the total count of tweets for this account
-    const { count, error: countError } = await supabase
-      .from('tweets')
-      .select('*', { count: 'exact', head: true })
-      .eq('account_id', account_id)
-
-    if (countError) {
-      throw new Error(`Error getting count: ${countError.message}`)
+    // Directly fetch a random selection of tweets for this account
+    // We'll use a combination of approaches to get randomness:
+    // 1. Random order
+    // 2. Fetch a batch
+    // 3. Random selection from that batch
+    const BATCH_SIZE = 20;
+    
+    // First approach: try a random timestamp-based approach
+    // This gives us access to the entire tweet history without needing a count
+    const sortOptions = ['created_at', 'tweet_id', 'favorite_count', 'retweet_count'];
+    const randomSortColumn = sortOptions[Math.floor(Math.random() * sortOptions.length)];
+    const randomAscending = Math.random() > 0.5;
+    
+    let tweetData = null;
+    
+    // Try the timestamp-based approach first (should work most of the time)
+    try {
+      // Query using random sorting and a random dice roll to determine which tweets to return
+      const { data: randomTweets, error: randomError } = await supabase
+        .from('tweets')
+        .select('*')
+        .eq('account_id', account_id)
+        .order(randomSortColumn, { ascending: randomAscending })
+        .limit(BATCH_SIZE);
+      
+      if (randomError) {
+        throw randomError;
+      }
+      
+      if (randomTweets && randomTweets.length > 0) {
+        // Pick a random tweet from the returned set
+        const randomIndex = Math.floor(Math.random() * randomTweets.length);
+        tweetData = randomTweets[randomIndex];
+      }
+    } catch (error) {
+      console.warn('First random approach failed, trying backup method:', error);
     }
-
-    if (!count || count === 0) {
-      return res.status(404).json({ error: 'No tweets found for this account' })
-    }
-
-    // Generate a random offset
-    const randomOffset = Math.floor(Math.random() * count)
-
-    // First get the random tweet
-    const { data: tweetData, error: tweetError } = await supabase
-      .from('tweets')
-      .select('*')
-      .eq('account_id', account_id)
-      .range(randomOffset, randomOffset)
-      .single()
-
-    if (tweetError) {
-      throw new Error(`Error fetching tweet: ${tweetError.message}`)
-    }
-
+    
+    // If first approach failed, try a different random strategy
     if (!tweetData) {
-      throw new Error('No tweet retrieved')
+      try {
+        // Simplified approach - just get some tweets and pick one
+        const { data: backupTweets, error: backupError } = await supabase
+          .from('tweets')
+          .select('*')
+          .eq('account_id', account_id)
+          .limit(50);
+        
+        if (backupError) {
+          throw backupError;
+        }
+        
+        if (!backupTweets || backupTweets.length === 0) {
+          return res.status(404).json({ error: 'No tweets found for this account' });
+        }
+        
+        // Pick a random tweet from the returned set
+        const randomIndex = Math.floor(Math.random() * backupTweets.length);
+        tweetData = backupTweets[randomIndex];
+      } catch (error) {
+        console.error('Backup tweets fetch error:', error);
+        throw new Error(`Error fetching tweets: ${error instanceof Error ? error.message : String(error)}`);
+      }
     }
-
+    
+    // At this point, tweetData should be set or an error thrown
+    if (!tweetData) {
+      return res.status(404).json({ error: 'No tweets found for this account' });
+    }
+    
     // Then get the profile data
     const { data: profileData, error: profileError } = await supabase
       .from('profile')
       .select('avatar_media_url')
       .eq('account_id', account_id)
-      .maybeSingle()
+      .maybeSingle();
 
     if (profileError) {
-      console.error('Error fetching profile:', profileError);
-      // Continue without profile data
+      console.error('Profile error details:', JSON.stringify(profileError));
+      // Continue without profile data - this is non-fatal
     }
 
     // Combine the data
@@ -89,9 +126,21 @@ export default async function handler(
       avatar_media_url: profileData?.avatar_media_url
     };
 
-    return res.status(200).json(transformedTweet)
+    return res.status(200).json(transformedTweet);
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
-    return res.status(500).json({ error: errorMessage })
+    console.error('API error:', error);
+    let errorMessage = 'Unknown error occurred';
+    
+    if (error instanceof Error) {
+      errorMessage = error.message;
+    } else if (typeof error === 'object' && error !== null) {
+      try {
+        errorMessage = JSON.stringify(error);
+      } catch {
+        errorMessage = 'Error object could not be stringified';
+      }
+    }
+    
+    return res.status(500).json({ error: errorMessage });
   }
 }

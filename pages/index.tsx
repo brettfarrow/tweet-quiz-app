@@ -143,6 +143,10 @@ const TweetQuiz = () => {
   const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null);
   const [isCorrect, setIsCorrect] = useState<boolean | null>(null);
   const [stats, setStats] = useState({ correct: 0, total: 0 });
+  const [username, setUsername] = useState<string>('');
+  const [usingMentions, setUsingMentions] = useState<boolean>(false);
+  // Keep track of already seen tweets to avoid repeats
+  const [seenTweetIds, setSeenTweetIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     const savedStats = localStorage.getItem('tweetQuizStats');
@@ -162,12 +166,44 @@ const TweetQuiz = () => {
 
   const fetchQuestion = async () => {
     try {
-      const accounts = await fetchWithRetry<Account[]>('/api/random-accounts', {
-        retries: 3,
-        retryDelay: 1000
-      });
+      let accounts;
+      if (usingMentions && username) {
+        accounts = await fetchWithRetry<Account[]>(`/api/mentions?username=${username}`, {
+          retries: 3,
+          retryDelay: 1000
+        });
+        
+        if (!accounts || accounts.length === 0) {
+          setError('No mentions found for this username. Try another username or use random accounts.');
+          throw new Error('No mentions found');
+        }
+      } else {
+        accounts = await fetchWithRetry<Account[]>('/api/random-accounts', {
+          retries: 3,
+          retryDelay: 1000
+        });
+        
+        if (!accounts || accounts.length === 0) {
+          setError('Failed to fetch random accounts. Please try again.');
+          throw new Error('No random accounts found');
+        }
+      }
 
-      const randomAccount = accounts[Math.floor(Math.random() * accounts.length)];
+      // Safety check to ensure we have valid accounts with account_id
+      const validAccounts = accounts.filter(account => account && account.account_id);
+      
+      if (validAccounts.length === 0) {
+        setError('No valid accounts found. Please try again.');
+        throw new Error('No valid accounts found');
+      }
+
+      const randomAccount = validAccounts[Math.floor(Math.random() * validAccounts.length)];
+      
+      if (!randomAccount || !randomAccount.account_id) {
+        setError('Invalid account selected. Please try again.');
+        throw new Error('Invalid account selected');
+      }
+      
       const tweet = await fetchWithRetry<Tweet>(`/api/random-tweet?account_id=${randomAccount.account_id}`, {
         retries: 3,
         retryDelay: 1000
@@ -203,14 +239,222 @@ const TweetQuiz = () => {
 
   const preloadNextQuestion = async () => {
     try {
-      const newQuestion = await fetchQuestion();
-      setNextQuestion(newQuestion);
+      if (usingMentions && username) {
+        // Fetch accounts from mentions API
+        const mentionAccounts = await fetchWithRetry<Account[]>(`/api/mentions?username=${username}`, {
+          retries: 3,
+          retryDelay: 1000
+        });
+        
+        if (!mentionAccounts || mentionAccounts.length === 0) {
+          setError('No mentions found for this username. Try another username or use random accounts.');
+          return;
+        }
+        
+        // Try to get a new tweet that we haven't seen before (up to 10 attempts)
+        let tweet: Tweet | null = null;
+        let attempts = 0;
+        const maxAttempts = 10;
+        
+        while (attempts < maxAttempts) {
+          try {
+            // Get a random account from the mentions
+            const randomAccount = mentionAccounts[Math.floor(Math.random() * mentionAccounts.length)];
+            
+            // Fetch a tweet for this account
+            const fetchedTweet = await fetch(`/api/random-tweet?account_id=${randomAccount.account_id}`);
+            
+            // Check for HTTP error responses
+            if (!fetchedTweet.ok) {
+              const errorText = await fetchedTweet.text();
+              console.warn(`Error fetching tweet: ${errorText}`);
+              attempts++;
+              continue; // Try again with a different account
+            }
+            
+            const tweetData = await fetchedTweet.json();
+            
+            // Check if the response contains an error message
+            if (tweetData.error) {
+              console.warn(`API returned error: ${tweetData.error}`);
+              attempts++;
+              continue; // Try again with a different account
+            }
+            
+            // Check if we've seen this tweet before
+            if (!seenTweetIds.has(tweetData.tweet_id)) {
+              tweet = tweetData;
+              break;
+            }
+          } catch (error) {
+            console.warn(`Error fetching tweet: ${error}`);
+          }
+          
+          attempts++;
+          
+          // If we've tried many times and still can't find a new tweet,
+          // consider resetting the seen tweets after a certain number of attempts
+          if (attempts === maxAttempts - 2) {
+            console.log('Too many seen tweets, clearing history...');
+            setSeenTweetIds(new Set());
+          }
+        }
+        
+        if (!tweet) {
+          // If all attempts failed, try once more but don't use fetchWithRetry
+          // to make sure we properly check for error responses
+          try {
+            const randomAccount = mentionAccounts[Math.floor(Math.random() * mentionAccounts.length)];
+            const response = await fetch(`/api/random-tweet?account_id=${randomAccount.account_id}`);
+            
+            if (!response.ok) {
+              throw new Error(`HTTP error: ${response.status}`);
+            }
+            
+            const data = await response.json();
+            if (data.error) {
+              throw new Error(`API error: ${data.error}`);
+            }
+            
+            tweet = data;
+          } catch (error) {
+            // Last resort - construct a fallback tweet
+            console.error('Failed to get any valid tweet, using fallback:', error);
+            tweet = {
+              tweet_id: 'fallback-' + Date.now(),
+              account_id: mentionAccounts[0].account_id,
+              created_at: new Date().toISOString(),
+              full_text: 'Sorry, we couldn\'t get a tweet for this user. Please try again or pick a different user.',
+              retweet_count: 0,
+              favorite_count: 0,
+              reply_count: 0
+            };
+          }
+        }
+        
+        // Create the question directly
+        const newQuestion = {
+          tweet,
+          accounts: mentionAccounts
+        };
+        
+        setNextQuestion(newQuestion);
+      } else {
+        // Fetch random accounts
+        const randomAccounts = await fetchWithRetry<Account[]>('/api/random-accounts', {
+          retries: 3,
+          retryDelay: 1000
+        });
+        
+        if (!randomAccounts || randomAccounts.length === 0) {
+          setError('Failed to fetch random accounts. Please try again.');
+          return;
+        }
+        
+        // Try to get a new tweet that we haven't seen before (up to 10 attempts)
+        let tweet: Tweet | null = null;
+        let attempts = 0;
+        const maxAttempts = 10;
+        
+        while (attempts < maxAttempts) {
+          try {
+            // Get a random account
+            const randomAccount = randomAccounts[Math.floor(Math.random() * randomAccounts.length)];
+            
+            // Fetch a tweet for this account
+            const fetchedTweet = await fetch(`/api/random-tweet?account_id=${randomAccount.account_id}`);
+            
+            // Check for HTTP error responses
+            if (!fetchedTweet.ok) {
+              const errorText = await fetchedTweet.text();
+              console.warn(`Error fetching tweet: ${errorText}`);
+              attempts++;
+              continue; // Try again with a different account
+            }
+            
+            const tweetData = await fetchedTweet.json();
+            
+            // Check if the response contains an error message
+            if (tweetData.error) {
+              console.warn(`API returned error: ${tweetData.error}`);
+              attempts++;
+              continue; // Try again with a different account
+            }
+            
+            // Check if we've seen this tweet before
+            if (!seenTweetIds.has(tweetData.tweet_id)) {
+              tweet = tweetData;
+              break;
+            }
+          } catch (error) {
+            console.warn(`Error fetching tweet: ${error}`);
+          }
+          
+          attempts++;
+          
+          // If we've tried many times and still can't find a new tweet,
+          // consider resetting the seen tweets after a certain number of attempts
+          if (attempts === maxAttempts - 2) {
+            console.log('Too many seen tweets, clearing history...');
+            setSeenTweetIds(new Set());
+          }
+        }
+        
+        if (!tweet) {
+          // If all attempts failed, try once more but don't use fetchWithRetry
+          // to make sure we properly check for error responses
+          try {
+            const randomAccount = randomAccounts[Math.floor(Math.random() * randomAccounts.length)];
+            const response = await fetch(`/api/random-tweet?account_id=${randomAccount.account_id}`);
+            
+            if (!response.ok) {
+              throw new Error(`HTTP error: ${response.status}`);
+            }
+            
+            const data = await response.json();
+            if (data.error) {
+              throw new Error(`API error: ${data.error}`);
+            }
+            
+            tweet = data;
+          } catch (error) {
+            // Last resort - construct a fallback tweet
+            console.error('Failed to get any valid tweet, using fallback:', error);
+            tweet = {
+              tweet_id: 'fallback-' + Date.now(),
+              account_id: randomAccounts[0].account_id,
+              created_at: new Date().toISOString(),
+              full_text: 'Sorry, we couldn\'t get a tweet for this account. Please try again.',
+              retweet_count: 0,
+              favorite_count: 0,
+              reply_count: 0
+            };
+          }
+        }
+        
+        // Create the question directly
+        const newQuestion = {
+          tweet,
+          accounts: randomAccounts
+        };
+        
+        setNextQuestion(newQuestion);
+      }
     } catch (error) {
       console.error('Error preloading next question:', error);
     }
   };
 
   const handleNextQuestion = () => {
+    // Add current tweet ID to the set of seen tweets to avoid repetition
+    if (currentQuestion?.tweet?.tweet_id) {
+      setSeenTweetIds(prev => {
+        const newSet = new Set(prev);
+        newSet.add(currentQuestion.tweet.tweet_id);
+        return newSet;
+      });
+    }
+    
     setCurrentQuestion(nextQuestion);
     setSelectedAnswer(null);
     setIsCorrect(null);
@@ -235,9 +479,80 @@ const TweetQuiz = () => {
     return (
       <div className="flex justify-center items-center h-64 flex-col gap-4">
         <div className="text-red-500">{error}</div>
-        <Button onClick={() => window.location.reload()}>
-          Retry
-        </Button>
+        <div className="flex space-x-2">
+          <Button onClick={() => window.location.reload()}>
+            Retry
+          </Button>
+          {usingMentions && (
+            <Button 
+              variant="outline"
+              onClick={() => {
+                // Immediately clear cache and switch to random mode
+                setUsingMentions(false);
+                setError(null);
+                setLoading(true);
+                // Clear seen tweets when switching modes
+                setSeenTweetIds(new Set());
+                
+                // Define a separate function to fetch with random accounts
+                const fetchWithRandomAccounts = async () => {
+                  try {
+                    // First fetch random accounts
+                    const randomAccounts = await fetchWithRetry<Account[]>('/api/random-accounts', {
+                      retries: 3,
+                      retryDelay: 1000
+                    });
+                    
+                    if (!randomAccounts || randomAccounts.length === 0) {
+                      setError('Failed to fetch random accounts. Please try again.');
+                      setLoading(false);
+                      return;
+                    }
+                    
+                    // Get a random account
+                    const randomAccount = randomAccounts[Math.floor(Math.random() * randomAccounts.length)];
+                    
+                    // Directly fetch a tweet for this account
+                    const tweet = await fetchWithRetry<Tweet>(`/api/random-tweet?account_id=${randomAccount.account_id}`, {
+                      retries: 3,
+                      retryDelay: 1000
+                    });
+                    
+                    // Create the first question directly
+                    const firstQuestion = {
+                      tweet,
+                      accounts: randomAccounts
+                    };
+                    
+                    setCurrentQuestion(firstQuestion);
+                    
+                    // Then create a second question
+                    const randomAccount2 = randomAccounts[Math.floor(Math.random() * randomAccounts.length)];
+                    const tweet2 = await fetchWithRetry<Tweet>(`/api/random-tweet?account_id=${randomAccount2.account_id}`, {
+                      retries: 3,
+                      retryDelay: 1000
+                    });
+                    
+                    const secondQuestion = {
+                      tweet: tweet2,
+                      accounts: randomAccounts
+                    };
+                    
+                    setNextQuestion(secondQuestion);
+                  } catch (error) {
+                    console.error('Error initializing questions with random accounts:', error);
+                  } finally {
+                    setLoading(false);
+                  }
+                };
+                
+                fetchWithRandomAccounts();
+              }}
+            >
+              Use Random Accounts
+            </Button>
+          )}
+        </div>
       </div>
     );
   }
@@ -262,9 +577,173 @@ const TweetQuiz = () => {
         </CardHeader>
         <CardContent className="space-y-6">
           <a className="block text-sm text-gray-800" href="https://www.community-archive.org/" target="_blank" rel="noopener noreferrer">Made possible with data from the <span className="font-semibold text-cyan-600 underline">Community Archive</span></a>
+          
+          {/* Username input and fetch mentions button */}
+          <div className="flex space-x-2">
+            <input
+              type="text"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              placeholder="Enter username"
+              className="flex-1 px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+            />
+            <Button 
+              onClick={() => {
+                // Immediately clear cache and switch to mentions mode
+                setUsingMentions(true);
+                setLoading(true);
+                setCurrentQuestion(null);
+                setNextQuestion(null);
+                setSelectedAnswer(null);
+                setIsCorrect(null);
+                setError(null);
+                // Clear seen tweets when switching modes
+                setSeenTweetIds(new Set());
+                
+                // Define a separate function to fetch with mentions
+                const fetchWithMentions = async () => {
+                  try {
+                    // First fetch accounts from mentions API
+                    const mentionAccounts = await fetchWithRetry<Account[]>(`/api/mentions?username=${username}`, {
+                      retries: 3,
+                      retryDelay: 1000
+                    });
+                    
+                    if (!mentionAccounts || mentionAccounts.length === 0) {
+                      setError('No mentions found for this username. Try another username or use random accounts.');
+                      setLoading(false);
+                      return;
+                    }
+                    
+                    // Get a random account from the mentions
+                    const randomAccount = mentionAccounts[Math.floor(Math.random() * mentionAccounts.length)];
+                    
+                    // Directly fetch a tweet for this account
+                    const tweet = await fetchWithRetry<Tweet>(`/api/random-tweet?account_id=${randomAccount.account_id}`, {
+                      retries: 3,
+                      retryDelay: 1000
+                    });
+                    
+                    // Create the first question directly
+                    const firstQuestion = {
+                      tweet,
+                      accounts: mentionAccounts
+                    };
+                    
+                    setCurrentQuestion(firstQuestion);
+                    
+                    // Then create a second question (also from mentions)
+                    const randomAccount2 = mentionAccounts[Math.floor(Math.random() * mentionAccounts.length)];
+                    const tweet2 = await fetchWithRetry<Tweet>(`/api/random-tweet?account_id=${randomAccount2.account_id}`, {
+                      retries: 3,
+                      retryDelay: 1000
+                    });
+                    
+                    const secondQuestion = {
+                      tweet: tweet2,
+                      accounts: mentionAccounts
+                    };
+                    
+                    setNextQuestion(secondQuestion);
+                  } catch (error) {
+                    console.error('Error initializing questions with mentions:', error);
+                  } finally {
+                    setLoading(false);
+                  }
+                };
+                
+                fetchWithMentions();
+              }}
+              disabled={!username.trim()}
+              className="whitespace-nowrap"
+            >
+              Use Mentions
+            </Button>
+            {usingMentions && (
+              <Button 
+                variant="outline"
+                onClick={() => {
+                  // Immediately clear cache and switch to random mode
+                  setUsingMentions(false);
+                  setLoading(true);
+                  setCurrentQuestion(null);
+                  setNextQuestion(null);
+                  setSelectedAnswer(null);
+                  setIsCorrect(null);
+                  setError(null);
+                  // Clear seen tweets when switching modes
+                  setSeenTweetIds(new Set());
+                  
+                  // Define a separate function to fetch with random accounts
+                  const fetchWithRandomAccounts = async () => {
+                    try {
+                      // First fetch random accounts
+                      const randomAccounts = await fetchWithRetry<Account[]>('/api/random-accounts', {
+                        retries: 3,
+                        retryDelay: 1000
+                      });
+                      
+                      if (!randomAccounts || randomAccounts.length === 0) {
+                        setError('Failed to fetch random accounts. Please try again.');
+                        setLoading(false);
+                        return;
+                      }
+                      
+                      // Get a random account
+                      const randomAccount = randomAccounts[Math.floor(Math.random() * randomAccounts.length)];
+                      
+                      // Directly fetch a tweet for this account
+                      const tweet = await fetchWithRetry<Tweet>(`/api/random-tweet?account_id=${randomAccount.account_id}`, {
+                        retries: 3,
+                        retryDelay: 1000
+                      });
+                      
+                      // Create the first question directly
+                      const firstQuestion = {
+                        tweet,
+                        accounts: randomAccounts
+                      };
+                      
+                      setCurrentQuestion(firstQuestion);
+                      
+                      // Then create a second question
+                      const randomAccount2 = randomAccounts[Math.floor(Math.random() * randomAccounts.length)];
+                      const tweet2 = await fetchWithRetry<Tweet>(`/api/random-tweet?account_id=${randomAccount2.account_id}`, {
+                        retries: 3,
+                        retryDelay: 1000
+                      });
+                      
+                      const secondQuestion = {
+                        tweet: tweet2,
+                        accounts: randomAccounts
+                      };
+                      
+                      setNextQuestion(secondQuestion);
+                    } catch (error) {
+                      console.error('Error initializing questions with random accounts:', error);
+                    } finally {
+                      setLoading(false);
+                    }
+                  };
+                  
+                  fetchWithRandomAccounts();
+                }}
+              >
+                Random
+              </Button>
+            )}
+          </div>
+          
           {/* Stats Display */}
-          <div className="text-sm text-gray-600">
-            Success Rate: {getSuccessRate()}% ({stats.correct}/{stats.total})
+          <div className="flex justify-between text-sm text-gray-600">
+            <div>
+              Success Rate: {getSuccessRate()}% ({stats.correct}/{stats.total})
+            </div>
+            {usingMentions && username && (
+              <div className="font-medium text-primary">
+                Using mentions for: @{username}
+              </div>
+            )}
           </div>
 
           {/* Tweet Display */}
