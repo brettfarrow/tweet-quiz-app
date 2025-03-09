@@ -965,3 +965,10 @@ const TweetQuiz = () => {
 };
 
 export default TweetQuiz;
+
+// Add this to make the page client-side only
+export const getStaticProps = async () => {
+  return {
+    props: {}, // No props needed since all data is fetched client-side
+  }
+};

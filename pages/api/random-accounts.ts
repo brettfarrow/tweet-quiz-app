@@ -1,10 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
-import { createClient } from '@supabase/supabase-js'
-
-const supabaseUrl = 'https://fabxmporizzqflnftavs.supabase.co'
-const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZhYnhtcG9yaXp6cWZsbmZ0YXZzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MjIyNDQ5MTIsImV4cCI6MjAzNzgyMDkxMn0.UIEJiUNkLsW28tBHmG-RQDW-I5JNlJLt62CSk9D_qG8'
-
-const supabase = createClient(supabaseUrl, supabaseKey)
+import supabase from '@/utils/supabase'
+import { getApiUrl } from '@/utils/urls'
 
 type Account = {
   account_id: string
@@ -28,7 +24,7 @@ export default async function handler(
 
   try {
     // Get all accounts from our cached endpoint
-    const response = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'}/api/accounts`);
+    const response = await fetch(getApiUrl('/api/accounts'));
     if (!response.ok) {
       throw new Error(`Error fetching accounts: ${response.statusText}`);
     }
