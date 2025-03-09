@@ -1,9 +1,16 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
+import { createClient } from '@supabase/supabase-js'
+
+const supabaseUrl = 'https://fabxmporizzqflnftavs.supabase.co'
+const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZhYnhtcG9yaXp6cWZsbmZ0YXZzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MjIyNDQ5MTIsImV4cCI6MjAzNzgyMDkxMn0.UIEJiUNkLsW28tBHmG-RQDW-I5JNlJLt62CSk9D_qG8'
+
+const supabase = createClient(supabaseUrl, supabaseKey)
 
 type Account = {
   account_id: string
   username: string
   account_display_name: string
+  avatar_media_url?: string
 }
 
 type CachedResponse = {
@@ -43,7 +50,29 @@ export default async function handler(
       accountsCopy.splice(randomIndex, 1);
     }
 
-    return res.status(200).json(randomAccounts);
+    // Fetch avatar URLs for each account
+    const accountsWithAvatars = await Promise.all(
+      randomAccounts.map(async (account) => {
+        try {
+          const { data: profileData } = await supabase
+            .from('profile')
+            .select('avatar_media_url')
+            .eq('account_id', account.account_id)
+            .maybeSingle();
+
+          return {
+            ...account,
+            avatar_media_url: profileData?.avatar_media_url
+          };
+        } catch (error) {
+          console.error(`Error fetching avatar for account ${account.account_id}:`, error);
+          // Return the account without avatar if there's an error
+          return account;
+        }
+      })
+    );
+
+    return res.status(200).json(accountsWithAvatars);
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
     return res.status(500).json({ error: errorMessage })

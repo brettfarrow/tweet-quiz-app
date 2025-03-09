@@ -10,6 +10,7 @@ type Account = {
   account_id: string;
   username: string;
   account_display_name: string;
+  avatar_media_url?: string;
 }
 
 type Tweet = {
@@ -671,7 +672,7 @@ const TweetQuiz = () => {
                 type="text"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                placeholder="Enter username"
+                placeholder="Enter your username to personalize with your mentions"
                 className="flex-1 px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary"
               />
             </div>
@@ -855,32 +856,75 @@ const TweetQuiz = () => {
           {loading ? (
             <div className="grid grid-cols-1 gap-3">
               {[1, 2, 3, 4].map((i) => (
-                <div 
-                  key={i}
-                  className="w-full h-12 animate-pulse bg-gray-200 rounded-md"
-                />
+                <div key={i} className="w-full h-auto min-h-[3rem] animate-pulse bg-gray-200 rounded-md flex items-center px-3 py-2">
+                  <div className="w-6 h-6 rounded-full animate-pulse bg-gray-300 mr-2"></div>
+                  <div className="flex-1">
+                    <div className="h-3 w-32 animate-pulse bg-gray-300 rounded mb-1"></div>
+                    <div className="h-3 w-20 animate-pulse bg-gray-300 rounded"></div>
+                  </div>
+                </div>
               ))}
             </div>
           ) : (
             <div className="grid grid-cols-1 gap-3">
-              {currentQuestion?.accounts?.map((account) => (
-                <Button
-                  key={account.account_id}
-                  onClick={() => handleGuess(account.account_id)}
-                  disabled={selectedAnswer !== null}
-                  variant={
-                    selectedAnswer === null ? "outline" :
-                    account.account_id === currentQuestion?.tweet?.account_id ? "default" :
-                    account.account_id === selectedAnswer ? "destructive" : "outline"
-                  }
-                  className="w-full justify-start h-12"
-                >
-                  {account.username}
-                  {selectedAnswer !== null && account.account_id === currentQuestion?.tweet?.account_id && (
-                    <Check className="ml-2 h-4 w-4" />
-                  )}
-                </Button>
-              ))}
+              {currentQuestion?.accounts?.map((account) => {
+                // Check if this is the correct account
+                const isCorrectAccount = account.account_id === currentQuestion?.tweet?.account_id;
+                
+                // Only show avatar for the correct account after answer is selected
+                const showRealAvatar = selectedAnswer !== null && 
+                                      isCorrectAccount && 
+                                      currentQuestion?.tweet?.avatar_media_url;
+                
+                // Generate an initial for the avatar
+                const initial = account.username.charAt(0).toUpperCase();
+                
+                // Generate a consistent color based on the username
+                const colors = ['bg-blue-500', 'bg-green-500', 'bg-yellow-500', 'bg-red-500', 
+                               'bg-purple-500', 'bg-pink-500', 'bg-indigo-500', 'bg-teal-500'];
+                const colorIndex = account.username.length % colors.length;
+                const bgColor = colors[colorIndex];
+                
+                return (
+                  <Button
+                    key={account.account_id}
+                    onClick={() => handleGuess(account.account_id)}
+                    disabled={selectedAnswer !== null}
+                    variant={
+                      selectedAnswer === null ? "outline" :
+                      isCorrectAccount ? "default" :
+                      account.account_id === selectedAnswer ? "destructive" : "outline"
+                    }
+                    className="w-full justify-start h-auto min-h-[3rem] py-2 px-3"
+                  >
+                    {/* Avatar - always show profile image when available */}
+                    {account.avatar_media_url ? (
+                      <img 
+                        src={account.avatar_media_url} 
+                        alt={`${account.username}'s avatar`}
+                        className="w-6 h-6 rounded-full mr-2 flex-shrink-0"
+                      />
+                    ) : (
+                      <div className={`w-6 h-6 rounded-full ${bgColor} mr-2 flex-shrink-0 flex items-center justify-center text-white text-xs font-bold`}>
+                        {initial}
+                      </div>
+                    )}
+                    
+                    {/* Username with display name if available */}
+                    <div className="flex flex-col items-start">
+                      {account.account_display_name && account.account_display_name !== account.username && (
+                        <span className="text-xs leading-tight">{account.account_display_name}</span>
+                      )}
+                      <span className="leading-tight text-gray-600">@{account.username}</span>
+                    </div>
+                    
+                    {/* Check mark for correct answer */}
+                    {selectedAnswer !== null && isCorrectAccount && (
+                      <Check className="ml-auto h-4 w-4" />
+                    )}
+                  </Button>
+                );
+              })}
             </div>
           )}
 

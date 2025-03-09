@@ -22,6 +22,7 @@ type Account = {
   account_id: string;
   username: string;
   account_display_name: string;
+  avatar_media_url?: string;
 }
 
 export default async function handler(
@@ -117,7 +118,29 @@ export default async function handler(
       accountsArray = randomAccounts;
     }
 
-    return res.status(200).json(accountsArray);
+    // Fetch avatar URLs for each account
+    const accountsWithAvatars = await Promise.all(
+      accountsArray.map(async (account) => {
+        try {
+          const { data: profileData } = await supabase
+            .from('profile')
+            .select('avatar_media_url')
+            .eq('account_id', account.account_id)
+            .maybeSingle();
+
+          return {
+            ...account,
+            avatar_media_url: profileData?.avatar_media_url
+          };
+        } catch (error) {
+          console.error(`Error fetching avatar for account ${account.account_id}:`, error);
+          // Return the account without avatar if there's an error
+          return account;
+        }
+      })
+    );
+
+    return res.status(200).json(accountsWithAvatars);
   } catch (error) {
     console.error('Error:', error)
     return res.status(500).json({ 
