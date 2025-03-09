@@ -871,11 +871,6 @@ const TweetQuiz = () => {
                 // Check if this is the correct account
                 const isCorrectAccount = account.account_id === currentQuestion?.tweet?.account_id;
                 
-                // Only show avatar for the correct account after answer is selected
-                const showRealAvatar = selectedAnswer !== null && 
-                                      isCorrectAccount && 
-                                      currentQuestion?.tweet?.avatar_media_url;
-                
                 // Generate an initial for the avatar
                 const initial = account.username.charAt(0).toUpperCase();
                 
