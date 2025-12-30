@@ -5,7 +5,12 @@ const nextConfig = {
   poweredByHeader: false,
   // Disable image optimization for external URLs (like avatar images)
   images: {
-    domains: ['fabxmporizzqflnftavs.supabase.co'],
+    remotePatterns: [
+      {
+        protocol: 'https',
+        hostname: 'fabxmporizzqflnftavs.supabase.co',
+      },
+    ],
     unoptimized: true,
   },
 };
