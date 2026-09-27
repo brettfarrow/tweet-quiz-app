@@ -1,68 +1,15 @@
-import type { NextApiRequest, NextApiResponse } from 'next'
-import supabase from '@/utils/supabase'
+import type { NextApiRequest, NextApiResponse } from 'next';
+import type { AccountResponse, ApiError } from '@/lib/types';
+import { getAccounts } from '@/lib/server/accounts';
+import { allowGet, serverError } from '@/lib/server/api';
 
-interface Account {
-  account_id: string;
-  username: string;
-  account_display_name: string;
-}
-
-async function fetchAllAccounts() {
-  const { data, error } = await supabase
-    .from('account')
-    .select('account_id, username, account_display_name')
-    .order('account_id', { ascending: true });
-
-  if (error) {
-    throw new Error(`Error fetching accounts: ${error.message}`);
-  }
-
-  if (!data) {
-    throw new Error('No accounts retrieved');
-  }
-
-  return data;
-}
-
-export default async function handler(
-  req: NextApiRequest,
-  res: NextApiResponse<{
-    data: Account[];
-    lastUpdated: string;
-  } | { error: string }>
-) {
-  // Only allow GET requests
-  if (req.method !== 'GET') {
-    return res.status(405).json({ error: 'Method not allowed' });
-  }
-
-  // Force refresh if requested
-  const forceRefresh = req.query.refresh === 'true';
-
+export default async function handler(req: NextApiRequest, res: NextApiResponse<AccountResponse | ApiError>) {
+  if (!allowGet(req, res)) return;
   try {
-    // Set cache headers
-    if (!forceRefresh) {
-      // Cache for 24 hours
-      res.setHeader(
-        'Cache-Control',
-        'public, s-maxage=86400, stale-while-revalidate=600'
-      );
-    } else {
-      // No cache for force refresh
-      res.setHeader('Cache-Control', 'no-store');
-    }
-
-    // Fetch accounts
-    const accounts = await fetchAllAccounts();
-    
-    return res.status(200).json({
-      data: accounts,
-      lastUpdated: new Date().toISOString(),
-    });
+    const accounts = await getAccounts();
+    res.setHeader('Cache-Control', 'public, s-maxage=3600, stale-while-revalidate=600');
+    return res.status(200).json(accounts);
   } catch (error) {
-    // Don't cache errors
-    res.setHeader('Cache-Control', 'no-store');
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-    return res.status(500).json({ error: errorMessage });
+    return serverError(res, 'Unable to load accounts', error);
   }
 }

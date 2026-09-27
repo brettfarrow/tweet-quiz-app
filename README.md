@@ -1,54 +1,51 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/pages/api-reference/create-next-app).
+# Guess the Poaster
 
-## Getting Started
+A Next.js quiz using tweets and accounts from the Community Archive. Play with random authors or authors who have mentioned a username. Scores are stored locally in the browser.
 
-### Environment Variables
+## Development
 
-Create a `.env.local` file in the root directory with the following variables:
+Use Node.js 24 LTS (Node.js 22.13+ is also supported).
 
-```
-NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
-NEXT_PUBLIC_BASE_URL=http://localhost:3000
-```
-
-For production deployment, set these environment variables on your hosting platform.
-
-### Running the Server
-
-First, run the development server:
-
-```bash
+```sh
+npm ci
+cp .env.example .env.local
+# Fill in the Supabase URL and anonymous key in .env.local.
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open http://localhost:3000. The database needs the `account`, `profile`, `tweets`, `mentioned_users`, and `user_mentions` tables and their existing relationships.
 
-You can start editing the page by modifying `pages/index.tsx`. The page auto-updates as you edit the file.
+`SUPABASE_URL` and `SUPABASE_ANON_KEY` are read on the server. Legacy `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` settings still work. Use an anonymous key, never a service-role key. No base URL setting is needed: API routes share database helpers directly.
 
-[API routes](https://nextjs.org/docs/pages/building-your-application/routing/api-routes) can be accessed on [http://localhost:3000/api/hello](http://localhost:3000/api/hello). This endpoint can be edited in `pages/api/hello.ts`.
+Optional analytics uses `NEXT_PUBLIC_POSTHOG_KEY` and `NEXT_PUBLIC_POSTHOG_HOST`. The SDK is loaded after hydration only when configured. Automatic interaction capture and session recording are disabled; anonymous visitors do not receive person profiles.
 
-The `pages/api` directory is mapped to `/api/*`. Files in this directory are treated as [API routes](https://nextjs.org/docs/pages/building-your-application/routing/api-routes) instead of React pages.
+## Checks
 
-This project uses [`next/font`](https://nextjs.org/docs/pages/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```sh
+npm run check       # lint, TypeScript, regression tests, production build
+npm audit           # known dependency vulnerabilities
+npm start           # serve a completed production build
+```
 
-## Learn More
+Tests mock database and network calls, so checks and builds work without credentials. Run a live smoke test with your own database configuration before deploying.
 
-To learn more about Next.js, take a look at the following resources:
+## API behavior
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn-pages-router) - an interactive Next.js tutorial.
+All endpoints accept GET only. Invalid usernames/account IDs return 400, unsupported methods return 405 with `Allow: GET`, and database failures return a generic 500 response with details logged only on the server.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+- `/api/accounts`: paginated account directory, cached for an hour per server process, with concurrent cache misses combined. Successful responses also have a one-hour shared HTTP cache. The former unauthenticated `refresh=true` cache bypass is no longer supported.
+- `/api/random-accounts`: up to four unique accounts with avatars fetched in one query.
+- `/api/mentions?username=alice`: up to four authors from the latest 100 mentions. Unknown usernames return an empty list. Lookups currently use the stored screen name's exact casing.
+- `/api/random-tweet?account_id=123`: a tweet sampled from a batch of 20 rows, using a randomly chosen ordering. Empty archives return 404. Avatar data comes from the account response instead of another profile query.
 
-## Deploy on Vercel
+Random responses and errors are not cached. Database HTTP requests have a ten-second timeout. Client reads use bounded retries for transient failures and cancel when the quiz mode changes or the page unmounts.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Deployment review
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/pages/building-your-application/deploying) for more details.
+- Verify Supabase grants and row-level security against the live project. An anonymous key does not itself limit access: public reads must cover only intended data, and anonymous writes should be denied. See [Supabase's RLS documentation](https://supabase.com/docs/guides/database/postgres/row-level-security).
+- Configure rate limits for public `/api/*` endpoints at the hosting edge or with a shared store if needed. The account cache is per process and is not a distributed rate limiter.
+- Inspect database query plans before adding indexes, especially for tweet ordering within an account and mention lookup by user. No schema or index migrations are included here.
+- Tweet sampling is bounded and biased toward the selected ordering's extremes. Uniform archive-wide sampling needs a database-backed sampling strategy; changing to full-table random sorting would add cost. Recent mention sampling can also produce fewer than four authors.
+- The answer is present in the browser's quiz response. This is appropriate for a casual quiz; competitive scoring would need server-side answer validation.
+
+The ESLint setup uses the [Next.js flat configuration](https://nextjs.org/docs/app/api-reference/config/eslint) and runs separately from the build.
